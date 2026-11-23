@@ -1,0 +1,24 @@
+name: Apply update
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Aplicar update.zip
+        run: |
+          if [ ! -f update.zip ]; then
+            echo "No se encontro update.zip en la raiz del repositorio"
+            exit 1
+          fi
+          unzip -o update.zip -x ".github/*"
+          rm update.zip
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "Aplicar actualizacion"
+          git push
