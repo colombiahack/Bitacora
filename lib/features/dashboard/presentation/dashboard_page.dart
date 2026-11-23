@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/extras_providers.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/formatters.dart';
@@ -13,7 +14,9 @@ class DashboardPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statsAsync = ref.watch(dashboardStatsProvider);
+    final extraAlerts = ref.watch(extraAlertsProvider).valueOrNull ?? const <DashboardAlert>[];
     final pilot = ref.watch(pilotProvider).valueOrNull;
+    final themeMode = ref.watch(themeModeProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
@@ -24,7 +27,9 @@ class DashboardPage extends ConsumerWidget {
             tooltip: isDark ? 'Modo claro' : 'Modo oscuro',
             icon: Icon(isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
             onPressed: () => ref.read(themeModeProvider.notifier).state =
-                isDark ? ThemeMode.light : ThemeMode.dark,
+                (isDark || themeMode == ThemeMode.dark)
+                    ? ThemeMode.light
+                    : ThemeMode.dark,
           ),
         ],
       ),
@@ -37,7 +42,10 @@ class DashboardPage extends ConsumerWidget {
         skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error al cargar datos: $e')),
-        data: (stats) => ListView(
+        data: (stats) {
+          final alerts = [...stats.alerts, ...extraAlerts]
+            ..sort((a, b) => b.level.index.compareTo(a.level.index));
+          return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
           children: [
             if (pilot != null && pilot.fullName.isNotEmpty)
@@ -52,7 +60,7 @@ class DashboardPage extends ConsumerWidget {
             const SizedBox(height: 20),
             Text('Alertas', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
-            if (stats.alerts.isEmpty)
+            if (alerts.isEmpty)
               const _AlertTile(
                 alert: DashboardAlert(
                   AlertLevel.warning,
@@ -62,9 +70,10 @@ class DashboardPage extends ConsumerWidget {
                 ok: true,
               )
             else
-              for (final alert in stats.alerts) _AlertTile(alert: alert),
+              for (final alert in alerts) _AlertTile(alert: alert),
           ],
-        ),
+        );
+        },
       ),
     );
   }

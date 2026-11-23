@@ -10,6 +10,7 @@ import '../../../core/widgets/ui_helpers.dart';
 import '../../hangar/domain/aircraft.dart';
 import '../domain/flight_filter.dart';
 import '../domain/flight_log.dart';
+import 'flight_photos.dart';
 
 /// Historial cronológico con búsqueda, filtros y exportación a PDF.
 class HistoryPage extends ConsumerStatefulWidget {
@@ -255,6 +256,7 @@ class _HistoryPageState extends ConsumerState<HistoryPage> {
                   f.windSpeedKmh == null ? '' : '${f.windSpeedKmh!.toStringAsFixed(0)} km/h'),
               row('Checklist', f.preFlightChecklistPassed ? 'Completo' : 'Incompleto'),
               row('Novedades', f.remarks),
+              FlightPhotosStrip(flightId: f.id),
             ],
           ),
         ),

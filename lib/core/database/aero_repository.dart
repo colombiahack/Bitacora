@@ -20,6 +20,9 @@ class AeroRepository {
 
   final Database _db;
 
+  /// Acceso a la base para los repositorios de funciones adicionales.
+  Database get db => _db;
+
   // ---------------------------------------------------------------- Helpers
 
   /// UPDATE-then-INSERT. Se evita `ConflictAlgorithm.replace` porque borra la

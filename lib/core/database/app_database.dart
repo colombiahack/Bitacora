@@ -11,11 +11,11 @@ class AppDatabase {
 
   final Database db;
 
-  static const String _dbName = 'aerolog_uas.db';
-  static const int _dbVersion = 1;
+  static const String fileName = 'bitacora_de_vuelos.db';
+  static const int _dbVersion = 2;
 
   static Future<AppDatabase> open() async {
-    final path = p.join(await getDatabasesPath(), _dbName);
+    final path = p.join(await getDatabasesPath(), fileName);
     final db = await openDatabase(
       path,
       version: _dbVersion,
@@ -115,12 +115,79 @@ class AppDatabase {
       )
     ''');
 
+    _createExtraTables(batch);
+
     await batch.commit(noResult: true);
   }
 
-  /// Punto de extensión para migraciones futuras (versión 2, 3...).
+  /// Tablas añadidas en la versión 2: mantenimiento, documentos, incidentes,
+  /// plantillas de checklist y fotos de vuelo.
+  static void _createExtraTables(Batch batch) {
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS maintenance_task (
+        id TEXT PRIMARY KEY,
+        aircraftId TEXT NOT NULL REFERENCES aircraft(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        intervalType TEXT NOT NULL DEFAULT 'HOURS',
+        intervalValue INTEGER NOT NULL DEFAULT 25,
+        lastDoneDate TEXT,
+        lastDoneMinutes INTEGER NOT NULL DEFAULT 0,
+        notes TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS document_item (
+        id TEXT PRIMARY KEY,
+        aircraftId TEXT REFERENCES aircraft(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL DEFAULT 'OTHER',
+        title TEXT NOT NULL,
+        number TEXT NOT NULL DEFAULT '',
+        expiryDate TEXT,
+        notes TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS incident (
+        id TEXT PRIMARY KEY,
+        date TEXT NOT NULL,
+        aircraftId TEXT REFERENCES aircraft(id) ON DELETE SET NULL,
+        severity TEXT NOT NULL DEFAULT 'LOW',
+        description TEXT NOT NULL,
+        actionsTaken TEXT NOT NULL DEFAULT '',
+        updatedAt TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS checklist_template (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'UAS',
+        itemsJson TEXT NOT NULL DEFAULT '[]',
+        updatedAt TEXT NOT NULL,
+        synced INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS flight_photo (
+        id TEXT PRIMARY KEY,
+        flightId TEXT NOT NULL REFERENCES flight_log(id) ON DELETE CASCADE,
+        path TEXT NOT NULL,
+        createdAt TEXT NOT NULL
+      )
+    ''');
+  }
+
+  /// Migraciones: v1 -> v2 añade las tablas adicionales sin tocar los datos.
   static Future<void> _onUpgrade(Database db, int oldV, int newV) async {
-    // Ejemplo:
-    // if (oldV < 2) await db.execute('ALTER TABLE flight_log ADD COLUMN ...');
+    if (oldV < 2) {
+      final batch = db.batch();
+      _createExtraTables(batch);
+      await batch.commit(noResult: true);
+    }
   }
 }

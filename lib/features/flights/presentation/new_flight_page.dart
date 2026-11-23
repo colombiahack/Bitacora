@@ -1,17 +1,23 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/constants/enums.dart';
 import '../../../core/errors/aero_exception.dart';
+import '../../../core/extras_providers.dart';
 import '../../../core/providers.dart';
 import '../../../core/services/location_service.dart';
+import '../../../core/services/photo_service.dart';
+import '../../../core/services/weather_service.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../core/widgets/ui_helpers.dart';
 import '../../hangar/domain/aircraft.dart';
+import '../../tools/domain/models.dart';
 import '../domain/flight_log.dart';
 
 /// Formulario de registro de vuelo:
@@ -70,7 +76,11 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
   Timer? _ticker;
 
   bool _capturingGps = false;
+  bool _fetchingWeather = false;
   bool _saving = false;
+
+  String? _templateId;
+  final List<String> _photoPaths = [];
 
   @override
   void dispose() {
@@ -183,8 +193,66 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
 
   // ------------------------------------------------------------- Guardado
 
-  List<String> _checklistFor(AircraftCategory? category) =>
-      category == AircraftCategory.manned ? _mannedChecklist : _uasChecklist;
+  List<ChecklistTemplate> _templatesFor(AircraftCategory? category) {
+    final all = ref.read(checklistTemplatesProvider).valueOrNull ??
+        const <ChecklistTemplate>[];
+    final cat = category ?? AircraftCategory.uas;
+    return all.where((t) => t.category == cat).toList();
+  }
+
+  ChecklistTemplate? _activeTemplate(AircraftCategory? category) {
+    final list = _templatesFor(category);
+    if (list.isEmpty) return null;
+    for (final t in list) {
+      if (t.id == _templateId) return t;
+    }
+    return list.first;
+  }
+
+  List<String> _checklistFor(AircraftCategory? category) {
+    final t = _activeTemplate(category);
+    if (t != null && t.items.isNotEmpty) return t.items;
+    return category == AircraftCategory.manned ? _mannedChecklist : _uasChecklist;
+  }
+
+  // ----------------------------------------------------------------- Clima
+
+  Future<void> _fetchWeather() async {
+    var lat = parseDouble(_latCtrl.text);
+    var lng = parseDouble(_lngCtrl.text);
+    if (lat == null || lng == null) {
+      await _captureGps();
+      lat = parseDouble(_latCtrl.text);
+      lng = parseDouble(_lngCtrl.text);
+    }
+    if (lat == null || lng == null) return;
+    setState(() => _fetchingWeather = true);
+    try {
+      final w = await const WeatherService().fetch(lat, lng);
+      _weatherCtrl.text = w.summary;
+      _windCtrl.text = w.windKmh.toStringAsFixed(0);
+      if (mounted) showSnack(context, 'Clima actualizado');
+    } on AeroException catch (e) {
+      if (mounted) showSnack(context, e.message);
+    } catch (_) {
+      if (mounted) {
+        showSnack(context, 'No se pudo obtener el clima. Revisa tu conexión a internet.');
+      }
+    } finally {
+      if (mounted) setState(() => _fetchingWeather = false);
+    }
+  }
+
+  // ----------------------------------------------------------------- Fotos
+
+  Future<void> _addPhoto(ImageSource source) async {
+    try {
+      final path = await const PhotoService().pick(source);
+      if (path != null && mounted) setState(() => _photoPaths.add(path));
+    } catch (e) {
+      if (mounted) showSnack(context, 'No se pudo agregar la foto: $e');
+    }
+  }
 
   Future<void> _save(List<Aircraft> aircraftList) async {
     if (!_formKey.currentState!.validate()) return;
@@ -236,6 +304,10 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
     setState(() => _saving = true);
     try {
       await ref.read(repositoryProvider).saveFlight(flight);
+      final extras = ref.read(extrasRepositoryProvider);
+      for (final path in _photoPaths) {
+        await extras.addPhoto(flight.id, path);
+      }
       ref.refreshData(); // recarga dashboard, historial, hangar...
       if (!mounted) return;
       showSnack(
@@ -273,6 +345,7 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
       _operation = null;
       _batteryIds.clear();
       _checked.clear();
+      _photoPaths.clear();
       _manual = false;
       _date = dateOnly(DateTime.now());
       _takeoff = null;
@@ -287,6 +360,7 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
   @override
   Widget build(BuildContext context) {
     final aircraftAsync = ref.watch(aircraftListProvider);
+    ref.watch(checklistTemplatesProvider); // para reconstruir si cambian las plantillas
     final batteries = ref.watch(batteryListProvider).valueOrNull ?? const [];
     final hybrid = ref.watch(pilotProvider).valueOrNull?.hybridEnabled ?? false;
 
@@ -487,6 +561,23 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
                         validator: (v) => optionalNumberValidator(v, min: 0),
                       ),
                       const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: _fetchingWeather ? null : _fetchWeather,
+                          icon: _fetchingWeather
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.cloud_download_outlined),
+                          label: Text(_fetchingWeather
+                              ? 'Consultando clima...'
+                              : 'Clima automático (usa tu GPS)'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       _sectionTitle('Novedades'),
                       TextFormField(
                         controller: _remarksCtrl,
@@ -497,6 +588,55 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
                           labelText: 'Novedades o incidentes',
                           alignLabelWithHint: true,
                         ),
+                      ),
+                      const SizedBox(height: 8),
+                      _sectionTitle('Fotos'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final path in _photoPaths)
+                            Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.file(
+                                    File(path),
+                                    width: 80,
+                                    height: 80,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const SizedBox(
+                                      width: 80,
+                                      height: 80,
+                                      child: Icon(Icons.broken_image_outlined),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: 0,
+                                  top: 0,
+                                  child: InkWell(
+                                    onTap: () => setState(() => _photoPaths.remove(path)),
+                                    child: const CircleAvatar(
+                                      radius: 11,
+                                      backgroundColor: Colors.black54,
+                                      child: Icon(Icons.close, size: 14, color: Colors.white),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          OutlinedButton.icon(
+                            onPressed: () => _addPhoto(ImageSource.camera),
+                            icon: const Icon(Icons.photo_camera_outlined),
+                            label: const Text('Cámara'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: () => _addPhoto(ImageSource.gallery),
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: const Text('Galería'),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 24),
                       FilledButton.icon(
@@ -528,6 +668,8 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
 
   Widget _buildChecklist(Aircraft? aircraft) {
     final items = _checklistFor(aircraft?.category);
+    final templates = _templatesFor(aircraft?.category);
+    final active = _activeTemplate(aircraft?.category);
     final done = items.where(_checked.contains).length;
     final allDone = done == items.length;
     final scheme = Theme.of(context).colorScheme;
@@ -542,6 +684,23 @@ class _NewFlightPageState extends ConsumerState<NewFlightPage> {
         title: const Text('Checklist pre-vuelo'),
         subtitle: Text(allDone ? 'Completo' : '$done de ${items.length} verificados'),
         children: [
+          if (templates.length > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: DropdownButtonFormField<String>(
+                value: active?.id,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Plantilla'),
+                items: [
+                  for (final t in templates)
+                    DropdownMenuItem(value: t.id, child: Text(t.name)),
+                ],
+                onChanged: (v) => setState(() {
+                  _templateId = v;
+                  _checked.clear();
+                }),
+              ),
+            ),
           for (final item in items)
             CheckboxListTile(
               dense: true,

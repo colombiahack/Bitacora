@@ -6,6 +6,7 @@ import '../../dashboard/presentation/dashboard_page.dart';
 import '../../flights/presentation/history_page.dart';
 import '../../flights/presentation/new_flight_page.dart';
 import '../../hangar/presentation/hangar_page.dart';
+import '../../tools/presentation/tools_page.dart';
 
 /// Contenedor con navegación inferior de 4 pestañas.
 /// Se usa [IndexedStack] para conservar el estado de cada pestaña (por ejemplo,
@@ -25,6 +26,7 @@ class HomeShell extends ConsumerWidget {
           NewFlightPage(),
           HistoryPage(),
           HangarPage(),
+          ToolsPage(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -51,6 +53,11 @@ class HomeShell extends ConsumerWidget {
             icon: Icon(Icons.inventory_2_outlined),
             selectedIcon: Icon(Icons.inventory_2),
             label: 'Hangar',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.apps_outlined),
+            selectedIcon: Icon(Icons.apps),
+            label: 'Más',
           ),
         ],
       ),
