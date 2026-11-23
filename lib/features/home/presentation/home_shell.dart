@@ -7,15 +7,30 @@ import '../../flights/presentation/history_page.dart';
 import '../../flights/presentation/new_flight_page.dart';
 import '../../hangar/presentation/hangar_page.dart';
 import '../../tools/presentation/tools_page.dart';
+import '../../tools/presentation/update_ui.dart';
 
 /// Contenedor con navegación inferior de 4 pestañas.
 /// Se usa [IndexedStack] para conservar el estado de cada pestaña (por ejemplo,
 /// el cronómetro de vuelo sigue corriendo si cambias de pestaña).
-class HomeShell extends ConsumerWidget {
+class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends ConsumerState<HomeShell> {
+  @override
+  void initState() {
+    super.initState();
+    // Busca actualizaciones al abrir la app (en silencio si no hay novedades).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkForUpdates(context, silent: true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final index = ref.watch(tabIndexProvider);
 
     return Scaffold(

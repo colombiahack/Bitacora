@@ -1,0 +1,16 @@
+
+android {
+    signingConfigs {
+        fija {
+            storeFile file(System.getenv("KS_PATH"))
+            storePassword System.getenv("KS_PASS")
+            keyAlias System.getenv("KS_ALIAS")
+            keyPassword System.getenv("KS_PASS")
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.fija
+        }
+    }
+}
