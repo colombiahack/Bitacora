@@ -1,6 +1,9 @@
 name: Build APK
 on: workflow_dispatch
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,8 +20,15 @@ jobs:
         run: flutter create . --org com.bitacora --project-name bitacora_de_vuelos --platforms android
       - name: Permisos y nombre de la app
         run: |
-          sed -i 's#<manifest xmlns:android="http://schemas.android.com/apk/res/android">#&\n<uses-permission android:name="android.permission.INTERNET"/>\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>#' android/app/src/main/AndroidManifest.xml
+          sed -i 's#<manifest xmlns:android="http://schemas.android.com/apk/res/android">#&\n<uses-permission android:name="android.permission.INTERNET"/>\n<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>\n<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>#' android/app/src/main/AndroidManifest.xml
           sed -i 's#android:label="[^"]*"#android:label="Bitácora de vuelos"#' android/app/src/main/AndroidManifest.xml
+      - name: Firma fija (permite actualizar sin desinstalar)
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            cat signing/firma.gradle.kts.txt >> android/app/build.gradle.kts
+          else
+            cat signing/firma.gradle.txt >> android/app/build.gradle
+          fi
       - run: rm -f test/widget_test.dart
       - run: flutter pub get
       - name: Iconos de la app
@@ -26,8 +36,22 @@ jobs:
         run: |
           flutter pub add --dev flutter_launcher_icons
           dart run flutter_launcher_icons
-      - run: flutter build apk --release
+      - name: Compilar APK
+        env:
+          KS_PATH: ${{ github.workspace }}/signing/bitacora.jks
+          KS_PASS: bitacora2026
+          KS_ALIAS: bitacora
+        run: flutter build apk --release --build-number=${{ github.run_number }} --dart-define=BUILD_NUMBER=${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         with:
           name: bitacora-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+      - name: Publicar versión para la actualización dentro de la app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk bitacora-de-vuelos.apk
+          gh release create "build-${{ github.run_number }}" bitacora-de-vuelos.apk \
+            --title "Versión ${{ github.run_number }}" \
+            --notes "Mejoras y correcciones." \
+            --latest
